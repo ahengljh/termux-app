@@ -229,6 +229,17 @@
 
 
 
+    <!-- ClawMobile Launcher -->
+    <string name="clawmobile_title">ClawMobile</string>
+    <string name="clawmobile_ready">Ready to install</string>
+    <string name="clawmobile_install_start">ClawMobile Install Start</string>
+    <string name="clawmobile_installing">Installing\u2026</string>
+    <string name="clawmobile_install_complete">Installation complete!</string>
+    <string name="clawmobile_install_failed">Installation failed. Tap to retry.</string>
+    <string name="clawmobile_preparing">Preparing environment\u2026</string>
+    <string name="action_switch_to_terminal">Switch to terminal</string>
+    <string name="action_switch_to_launcher">Switch to launcher</string>
+
     <!-- About Preference -->
     <string name="about_preference_title">About</string>
 

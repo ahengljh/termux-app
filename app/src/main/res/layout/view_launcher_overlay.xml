@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/launcher_overlay"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF1A1A2E">
+
+    <!-- Small button to switch to terminal view, top-right corner -->
+    <ImageButton
+        android:id="@+id/btn_switch_to_terminal"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="32dp"
+        android:layout_marginEnd="16dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:src="@drawable/ic_terminal_switch"
+        android:contentDescription="@string/action_switch_to_terminal"
+        android:alpha="0.7" />
+
+    <!-- Center content -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp">
+
+        <!-- App title -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/clawmobile_title"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Status text -->
+        <TextView
+            android:id="@+id/launcher_status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/clawmobile_ready"
+            android:textColor="#B0B0B0"
+            android:textSize="14sp"
+            android:layout_marginBottom="40dp" />
+
+        <!-- Install button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_clawmobile_install"
+            android:layout_width="280dp"
+            android:layout_height="64dp"
+            android:text="@string/clawmobile_install_start"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:backgroundTint="#FF6C63FF"
+            android:textColor="#FFFFFF" />
+
+        <!-- Progress section (hidden by default) -->
+        <LinearLayout
+            android:id="@+id/launcher_progress_section"
+            android:layout_width="280dp"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone"
+            android:layout_marginTop="32dp">
+
+            <ProgressBar
+                android:id="@+id/launcher_progress_bar"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="#FF6C63FF"
+                android:progressBackgroundTint="#33FFFFFF" />
+
+            <TextView
+                android:id="@+id/launcher_progress_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/clawmobile_installing"
+                android:textColor="#B0B0B0"
+                android:textSize="13sp"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

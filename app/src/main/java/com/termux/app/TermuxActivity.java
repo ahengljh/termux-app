@@ -23,7 +23,9 @@ import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.termux.R;
@@ -65,6 +67,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.viewpager.widget.ViewPager;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Arrays;
 
 /**
@@ -175,6 +181,21 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private float mTerminalToolbarDefaultHeight;
 
+    /**
+     * ClawMobile launcher overlay views.
+     */
+    private View mLauncherOverlay;
+    private View mLauncherInstallButton;
+    private View mLauncherProgressSection;
+    private ProgressBar mLauncherProgressBar;
+    private TextView mLauncherStatusText;
+    private TextView mLauncherProgressText;
+    private boolean mIsLauncherVisible = true;
+    private boolean mIsInstallRunning = false;
+
+    /** The terminal session running the install script, tracked for progress monitoring. */
+    private TerminalSession mInstallSession;
+
 
     private static final int CONTEXT_MENU_SELECT_URL_ID = 0;
     private static final int CONTEXT_MENU_SHARE_TRANSCRIPT_ID = 1;
@@ -250,6 +271,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         setNewSessionButtonView();
 
         setToggleKeyboardView();
+
+        setLauncherOverlayView();
 
         registerForContextMenu(mTerminalView);
 
@@ -598,11 +621,193 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
 
+    private void setLauncherOverlayView() {
+        mLauncherOverlay = findViewById(R.id.launcher_overlay);
+        mLauncherInstallButton = findViewById(R.id.btn_clawmobile_install);
+        mLauncherProgressSection = findViewById(R.id.launcher_progress_section);
+        mLauncherProgressBar = findViewById(R.id.launcher_progress_bar);
+        mLauncherStatusText = findViewById(R.id.launcher_status_text);
+        mLauncherProgressText = findViewById(R.id.launcher_progress_text);
+
+        // Install button click
+        mLauncherInstallButton.setOnClickListener(v -> startClawMobileInstall());
+
+        // Switch to terminal button
+        findViewById(R.id.btn_switch_to_terminal).setOnClickListener(v -> switchToTerminalView());
+
+        // Start with launcher visible
+        showLauncherOverlay();
+    }
+
+    private void showLauncherOverlay() {
+        mIsLauncherVisible = true;
+        mLauncherOverlay.setVisibility(View.VISIBLE);
+    }
+
+    /** Switch to terminal view (hide launcher overlay). */
+    public void switchToTerminalView() {
+        mIsLauncherVisible = false;
+        mLauncherOverlay.setVisibility(View.GONE);
+        // Focus terminal
+        mTerminalView.requestFocus();
+    }
+
+    /** Switch back to launcher view. */
+    public void switchToLauncherView() {
+        showLauncherOverlay();
+    }
+
+    private void startClawMobileInstall() {
+        if (mIsInstallRunning) return;
+        if (mTermuxService == null) {
+            showToast("Service not ready, please wait...", false);
+            return;
+        }
+
+        mIsInstallRunning = true;
+
+        // Update UI to show progress
+        mLauncherInstallButton.setEnabled(false);
+        ((com.google.android.material.button.MaterialButton) mLauncherInstallButton)
+            .setText(R.string.clawmobile_installing);
+        mLauncherStatusText.setText(R.string.clawmobile_preparing);
+        mLauncherProgressSection.setVisibility(View.VISIBLE);
+        mLauncherProgressBar.setProgress(0);
+        mLauncherProgressBar.setIndeterminate(true);
+
+        // Copy script from assets and execute it
+        new Thread(() -> {
+            try {
+                File scriptFile = copyScriptFromAssets();
+                runOnUiThread(() -> launchInstallScript(scriptFile));
+            } catch (IOException e) {
+                Logger.logStackTraceWithMessage(LOG_TAG, "Failed to copy install script", e);
+                runOnUiThread(() -> onInstallFailed("Failed to prepare script: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    private File copyScriptFromAssets() throws IOException {
+        File scriptsDir = new File(TermuxConstants.TERMUX_HOME_DIR_PATH);
+        if (!scriptsDir.exists()) scriptsDir.mkdirs();
+
+        File scriptFile = new File(scriptsDir, "clawmobile_install.sh");
+        try (InputStream is = getAssets().open("clawmobile_install.sh");
+             FileOutputStream fos = new FileOutputStream(scriptFile)) {
+            byte[] buffer = new byte[4096];
+            int len;
+            while ((len = is.read(buffer)) != -1) {
+                fos.write(buffer, 0, len);
+            }
+        }
+        scriptFile.setExecutable(true);
+        return scriptFile;
+    }
+
+    private void launchInstallScript(File scriptFile) {
+        if (mTermuxService == null) {
+            onInstallFailed("Service disconnected");
+            return;
+        }
+
+        // Create a session that runs the install script
+        String executablePath = scriptFile.getAbsolutePath();
+        com.termux.shared.termux.shell.command.runner.terminal.TermuxSession termuxSession =
+            mTermuxService.createTermuxSession(executablePath, null, null,
+                TermuxConstants.TERMUX_HOME_DIR_PATH, false, "ClawMobile Install");
+
+        if (termuxSession == null) {
+            onInstallFailed("Failed to create session");
+            return;
+        }
+
+        mInstallSession = termuxSession.getTerminalSession();
+        mTermuxTerminalSessionActivityClient.setCurrentSession(mInstallSession);
+
+        // Switch to indeterminate progress then start monitoring
+        mLauncherProgressBar.setIndeterminate(false);
+        mLauncherProgressBar.setProgress(10);
+        mLauncherStatusText.setText(R.string.clawmobile_installing);
+        mLauncherProgressText.setText(R.string.clawmobile_installing);
+
+        // Monitor the session for completion
+        monitorInstallSession();
+    }
+
+    private void monitorInstallSession() {
+        if (mInstallSession == null) return;
+
+        // Poll session status periodically
+        final android.os.Handler handler = new android.os.Handler(getMainLooper());
+        final Runnable checker = new Runnable() {
+            int progressValue = 10;
+            @Override
+            public void run() {
+                if (mInstallSession == null) return;
+
+                if (mInstallSession.isRunning()) {
+                    // Animate progress (simulate progress since we can't get exact progress from shell)
+                    if (progressValue < 90) {
+                        progressValue += 2;
+                        mLauncherProgressBar.setProgress(progressValue);
+                    }
+
+                    // Update progress text with latest terminal output hint
+                    String title = mInstallSession.getTitle();
+                    if (title != null && !title.isEmpty()) {
+                        mLauncherProgressText.setText(title);
+                    }
+
+                    handler.postDelayed(this, 500);
+                } else {
+                    // Session finished
+                    int exitCode = mInstallSession.getExitStatus();
+                    mLauncherProgressBar.setProgress(100);
+                    if (exitCode == 0) {
+                        onInstallComplete();
+                    } else {
+                        onInstallFailed("Script exited with code " + exitCode);
+                    }
+                }
+            }
+        };
+        handler.postDelayed(checker, 500);
+    }
+
+    private void onInstallComplete() {
+        mIsInstallRunning = false;
+        mInstallSession = null;
+        mLauncherProgressBar.setProgress(100);
+        mLauncherStatusText.setText(R.string.clawmobile_install_complete);
+        mLauncherProgressText.setText(R.string.clawmobile_install_complete);
+
+        ((com.google.android.material.button.MaterialButton) mLauncherInstallButton)
+            .setText(R.string.clawmobile_install_complete);
+        // Keep button disabled - installation is done
+    }
+
+    private void onInstallFailed(String reason) {
+        mIsInstallRunning = false;
+        mInstallSession = null;
+        mLauncherStatusText.setText(R.string.clawmobile_install_failed);
+        mLauncherProgressText.setText(reason);
+        mLauncherProgressBar.setProgress(0);
+
+        // Re-enable button to allow retry
+        mLauncherInstallButton.setEnabled(true);
+        ((com.google.android.material.button.MaterialButton) mLauncherInstallButton)
+            .setText(R.string.clawmobile_install_start);
+    }
+
+
     @SuppressLint("RtlHardcoded")
     @Override
     public void onBackPressed() {
         if (getDrawer().isDrawerOpen(Gravity.LEFT)) {
             getDrawer().closeDrawers();
+        } else if (!mIsLauncherVisible) {
+            // If in terminal view, go back to launcher instead of exiting
+            switchToLauncherView();
         } else {
             finishActivityIfNotFinishing();
         }
